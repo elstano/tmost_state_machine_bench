@@ -1,0 +1,1 @@
+create table xx (x text, y numeric);
