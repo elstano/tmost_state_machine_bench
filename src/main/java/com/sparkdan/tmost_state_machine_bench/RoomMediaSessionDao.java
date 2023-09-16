@@ -9,7 +9,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 import jakarta.annotation.Nonnull;
@@ -19,13 +18,12 @@ import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.intellij.lang.annotations.Language;
 import org.jetbrains.annotations.Nullable;
-import org.joda.time.Duration;
 import org.joda.time.Instant;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.Assert;
 
 @Service
@@ -88,6 +86,7 @@ public class RoomMediaSessionDao {
     );
 
     private final JdbcTemplate jdbcTemplate;
+    private final NamedParameterJdbcTemplate namedJdbcTemplate;
 
     private static String boundColumns(List<String> columns) {
         return columns.stream().map(c -> ":" + c).collect(Collectors.joining(","));
@@ -145,18 +144,22 @@ public class RoomMediaSessionDao {
         return found == null || found == 0;
     }
 
+    public void createRoom(String roomId) {
+        jdbcTemplate.update("insert into rooms (room_id) values (?)", roomId);
+    }
+
     public void created(String roomId, String peerId) {
-        jdbcTemplate.update(String.format("""
+        namedJdbcTemplate.update(String.format("""
                         insert into room_media_sessions (%s)
                         values (%s)
-                        on conflict(media_session_id, room_session_id) do nothing
+                        on conflict(peer_id, room_session_id) do nothing
                         """, CREATE_COLUMNS_STR, CREATE_COLUMNS_BOUND_STR),
                 new MapSqlParameterSource(Map.of(
                         COL_ROOM_ID, roomId,
                         COL_ROOM_SESSION_ID, UNKNOWN_ROOM_SESSION_ID,
                         COL_PEER_ID, peerId,
                         COL_CREATED_AT, new Timestamp(Instant.now().toDate().getTime()),
-                        COL_STATE, RoomMediaSessionState.CREATED
+                        COL_STATE, RoomMediaSessionState.CREATED.toString()
                 )));
     }
 
@@ -344,7 +347,7 @@ public class RoomMediaSessionDao {
         );
     }
 
-    public int disconnectRoomMediaSessionsByMediaSessionId(String mediaSessionId) {
+    public int disconnectRoomMediaSessionsByMediaSessionId(String peerId) {
         @Language("SQL")
         final String query = """
             update room_media_sessions
@@ -352,16 +355,16 @@ public class RoomMediaSessionDao {
             where (room_session_id, peer_id) in (
                 select room_session_id, peer_id
                 from room_media_sessions
-                where peer_id = :media_session_id and state in ('FIRST_OFFER_RECEIVED', 'CONNECTED')
+                where peer_id = :peer_id and state in ('FIRST_OFFER_RECEIVED', 'CONNECTED')
                 order by room_session_id, peer_id
                 for update
             )
             """;
 
         Map<String, Object> params = new HashMap<>();
-        params.put("media_session_id", mediaSessionId);
+        params.put("peer_id", peerId);
         params.put("disconnected_at", tmstmp(Instant.now()));
-        return jdbcTemplate.update(query, new MapSqlParameterSource(params));
+        return namedJdbcTemplate.update(query, new MapSqlParameterSource(params));
     }
 
     public int disconnectRoomMediaSessionsByPeerId(String peerId) {

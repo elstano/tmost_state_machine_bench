@@ -1,13 +1,19 @@
 package com.sparkdan.tmost_state_machine_bench;
 
+import java.util.List;
+
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
+import org.joda.time.Instant;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import static com.sparkdan.tmost_state_machine_bench.RoomMediaSessionState.*;
+
 @Service
-@RequiredArgsConstructor
 public class SampleService {
 
+    @Autowired
     RoomMediaSessionDao roomMediaSessionDao;
 
     private boolean isStaleRoomSession(String roomId, String roomSessionId) {
@@ -21,6 +27,58 @@ public class SampleService {
 
         return false;
     }
+
+    public void createSession(String roomId, String peerId) {
+        roomMediaSessionDao.created(roomId, peerId);
+    }
+
+    public boolean offerReceived(String roomId, String peerId, String roomSessionId) {
+        Instant now = Instant.now();
+        return upsertTransactionally(UpsertRMSRequest.builder()
+                .roomId(roomId)
+                .peerId(peerId)
+                .roomSessionId(roomSessionId)
+                .newState(FIRST_OFFER_RECEIVED)
+                .updatedStates(List.of(CREATED, ARCHIVED, FIRST_OFFER_RECEIVED))
+                .newCreatedAt(now)
+                .newFirstOfferAt(now)
+                .build());
+    }
+
+    public boolean connected(String roomId, String peerId, String roomSessionId) {
+        Instant now = Instant.now();
+        return upsertTransactionally(
+                UpsertRMSRequest.builder()
+                        .roomId(roomId)
+                        .roomSessionId(roomSessionId)
+                        .peerId(peerId)
+                        .updatedStates(List.of(ARCHIVED, CREATED, FIRST_OFFER_RECEIVED, CONNECTED))
+                        .newState(CONNECTED)
+                        .newCreatedAt(now)
+                        .newFirstOfferAt(now)
+                        .newConnectedAt(now)
+                        .build()
+        );
+    }
+
+    public boolean disconnected(String roomId, String roomSessionId, String peerId) {
+        Instant now = Instant.now();
+        return upsertTransactionally(
+                UpsertRMSRequest.builder()
+                        .roomId(roomId)
+                        .roomSessionId(roomSessionId)
+                        .peerId(peerId)
+                        .updatedStates(List.of(ARCHIVED, CREATED, FIRST_OFFER_RECEIVED, CONNECTED, DISCONNECTED))
+                        .newState(DISCONNECTED)
+                        .newCreatedAt(now)
+                        .newFirstOfferAt(now)
+                        .newConnectedAt(now)
+                        .newDisconnectedAt(now)
+                        .build()
+        );
+    }
+
+
 
     private boolean upsertTransactionally(UpsertRMSRequest upsertRMSRequest) {
         String roomId = upsertRMSRequest.getRoomId();
