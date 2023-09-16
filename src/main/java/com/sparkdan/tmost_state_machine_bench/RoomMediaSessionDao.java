@@ -25,6 +25,7 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.Assert;
+import org.springframework.util.CollectionUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -95,7 +96,7 @@ public class RoomMediaSessionDao {
 
     @Nullable
     public RoomMediaSessionDto findByPrimaryKey(@Nullable String roomSessionId, String peer_id) {
-        return jdbcTemplate.queryForObject("""
+        List<RoomMediaSessionDto> result = jdbcTemplate.query("""
                         select * from room_media_sessions
                         where room_session_id = ?
                           and peer_id = ?
@@ -104,6 +105,10 @@ public class RoomMediaSessionDao {
                 ObjectUtils.defaultIfNull(roomSessionId, UNKNOWN_ROOM_SESSION_ID),
                 peer_id
         );
+        if(CollectionUtils.isEmpty(result)) {
+            return null;
+        }
+        return result.get(0);
     }
 
     @Nullable
@@ -176,7 +181,7 @@ public class RoomMediaSessionDao {
                 "now", new Timestamp(System.currentTimeMillis()),
                 "unknown_rms_id_constant", UNKNOWN_ROOM_SESSION_ID
         );
-        Collection<RoomMediaSessionDto> recreated = jdbcTemplate.query("""
+        return namedJdbcTemplate.query("""
                         -- selecting media sessions that need to be disconnected right now
                         -- because they have wrong room_media_session_id
                         with to_disconnect as (
@@ -226,10 +231,9 @@ public class RoomMediaSessionDao {
                         on conflict (room_session_id, peer_id) do nothing
                         returning *
                         """,
-                (rs, rn) -> parseRow(rs),
-                params
+                params,
+                (rs, rn) -> parseRow(rs)
         );
-        return recreated;
     }
 
     public RoomMediaSessionDto insert(RoomMediaSessionDto roomMediaSessionDto) {

@@ -1,16 +1,22 @@
 package com.sparkdan.tmost_state_machine_bench;
 
+import java.util.Collection;
 import java.util.List;
 
-import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.joda.time.Instant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import static com.sparkdan.tmost_state_machine_bench.RoomMediaSessionState.*;
+import static com.sparkdan.tmost_state_machine_bench.RoomMediaSessionState.ARCHIVED;
+import static com.sparkdan.tmost_state_machine_bench.RoomMediaSessionState.CONNECTED;
+import static com.sparkdan.tmost_state_machine_bench.RoomMediaSessionState.CREATED;
+import static com.sparkdan.tmost_state_machine_bench.RoomMediaSessionState.DISCONNECTED;
+import static com.sparkdan.tmost_state_machine_bench.RoomMediaSessionState.FIRST_OFFER_RECEIVED;
 
 @Service
+@Slf4j
 public class SampleService {
 
     @Autowired
@@ -32,8 +38,54 @@ public class SampleService {
         roomMediaSessionDao.created(roomId, peerId);
     }
 
+    private boolean isRoomSessionLive(String roomId, String peerId, String roomSessionId) {
+        String latestRoomSessionId = roomMediaSessionDao.getLatestRoomSessionId(roomId);
+        if (latestRoomSessionId != null && roomSessionId != null
+            && !latestRoomSessionId.equals(roomSessionId)) {
+            //in case offer is for a session that has never been seen before,
+            // assume that bridge session was changed for some reason.
+            // allow connections only to the new sesson
+            boolean brandNew = roomMediaSessionDao.isBrandNewRoomSession(roomId, roomSessionId);
+            log.info("Room session {} is different from the database version {}. brand new: {}",
+                    roomSessionId,
+                    latestRoomSessionId,
+                    brandNew
+            );
+            return brandNew;
+        }
+        return true;
+    }
+
+
     public boolean offerReceived(String roomId, String peerId, String roomSessionId) {
+        boolean accepted = isRoomSessionLive(roomId, peerId, roomSessionId);
+        if (accepted) {
+            disconnectOtherSessions(roomId, roomSessionId);
+            accepted = persistFirstOfferEvent(roomId, peerId, roomSessionId);
+        }
+
+        log.info("Acknowledged offer from room_id={}, peer_id={}, bridge_session_id={}. " +
+                 "Accepted: {}",
+                roomId, peerId, roomSessionId, accepted
+        );
+
+        return accepted;
+    }
+
+    protected void disconnectOtherSessions(String roomId, String roomSessionIdToKeep) {
+        Collection<String> stalledRoomMediaSessions = roomMediaSessionDao.findOtherActiveRoomSessions(roomId,
+                roomSessionIdToKeep);
+        log.info("Disconnecting stalled room sessions {}", stalledRoomMediaSessions);
+        Collection<RoomMediaSessionDto> disconnectedMediaSessionIds =
+                roomMediaSessionDao.disconnectAllInRoomAndRecreate(
+                        stalledRoomMediaSessions,
+                        roomSessionIdToKeep
+                );
+    }
+
+    public boolean persistFirstOfferEvent(String roomId, String peerId, String roomSessionId) {
         Instant now = Instant.now();
+
         return upsertTransactionally(UpsertRMSRequest.builder()
                 .roomId(roomId)
                 .peerId(peerId)
