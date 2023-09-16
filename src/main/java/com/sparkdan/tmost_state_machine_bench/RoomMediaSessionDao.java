@@ -63,8 +63,8 @@ public class RoomMediaSessionDao {
                         then connected_at else coalesce(:connected_at, connected_at) end,
                     disconnected_at = case when :disconnected_at > disconnected_at
                         then disconnected_at else coalesce(:disconnected_at, disconnected_at) end,
-                    state = case when state in (:updated_states)
-                        then :state else state end,
+                    state = case when cast(state as text) in (:updated_states)
+                        then :state else cast(state as text) end,
                     room_session_id = :room_session_id
             where peer_id = :peer_id
             """;
@@ -319,17 +319,19 @@ public class RoomMediaSessionDao {
     }
 
     public int updateByRoomSessionId(UpsertRMSRequest upsertRMSRequest) {
-        return jdbcTemplate.update(
+        MapSqlParameterSource params = fromUpsertRMSRequest(upsertRMSRequest);
+        return namedJdbcTemplate.update(
                 UPDATE_BY_ROOM_SESSION_ID,
-                fromUpsertRMSRequest(upsertRMSRequest)
+                params
         );
     }
 
     public int updateCreatedRoomSession(UpsertRMSRequest upsertRMSRequest) {
         try {
-            return jdbcTemplate.update(
+            MapSqlParameterSource params = fromUpsertRMSRequest(upsertRMSRequest);
+            return namedJdbcTemplate.update(
                     UPDATE_CREATED_ROOM_SESSION,
-                    fromUpsertRMSRequest(upsertRMSRequest)
+                    params
             );
         } catch (DataIntegrityViolationException e) {
             log.info("failed to update created RMS with update request {}. probably someone else already updated it",
@@ -341,9 +343,10 @@ public class RoomMediaSessionDao {
     }
 
     public int insertOrDoNothing(UpsertRMSRequest upsertRMSRequest) {
-        return jdbcTemplate.update(
+        MapSqlParameterSource params = fromUpsertRMSRequest(upsertRMSRequest);
+        return namedJdbcTemplate.update(
                 INSERT_OR_DO_NOTHING,
-                fromUpsertRMSRequest(upsertRMSRequest)
+                params
         );
     }
 
@@ -393,15 +396,17 @@ public class RoomMediaSessionDao {
         result.put(COL_ROOM_ID, upsertRMSRequest.getRoomId());
         result.put(COL_ROOM_SESSION_ID, upsertRMSRequest.getRoomSessionId());
         result.put(COL_PEER_ID, upsertRMSRequest.getPeerId());
-        result.put(COL_CREATED_AT, upsertRMSRequest.getNewCreatedAt());
-        result.put(COL_FIRST_OFFER_AT, upsertRMSRequest.getNewFirstOfferAt());
-        result.put(COL_CONNECTED_AT, upsertRMSRequest.getNewConnectedAt());
-        result.put(COL_DISCONNECTED_AT, upsertRMSRequest.getNewDisconnectedAt());
-        result.put(COL_STATE, upsertRMSRequest.getNewState());
-        result.put("updated_states", upsertRMSRequest.getUpdatedStates());
+        result.put(COL_CREATED_AT, tmstmp(upsertRMSRequest.getNewCreatedAt()));
+        result.put(COL_FIRST_OFFER_AT, tmstmp(upsertRMSRequest.getNewFirstOfferAt()));
+        result.put(COL_CONNECTED_AT, tmstmp(upsertRMSRequest.getNewConnectedAt()));
+        result.put(COL_DISCONNECTED_AT, tmstmp(upsertRMSRequest.getNewDisconnectedAt()));
+        result.put(COL_STATE, upsertRMSRequest.getNewState().toString());
+        result.put("updated_states", upsertRMSRequest.getUpdatedStates().stream().map(Object::toString).toList());
 
         return new MapSqlParameterSource(result);
     }
+
+
 
 
 }

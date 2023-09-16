@@ -61,7 +61,7 @@ public class SampleService {
         );
     }
 
-    public boolean disconnected(String roomId, String roomSessionId, String peerId) {
+    public boolean disconnected(String roomId, String peerId, String roomSessionId) {
         Instant now = Instant.now();
         return upsertTransactionally(
                 UpsertRMSRequest.builder()
