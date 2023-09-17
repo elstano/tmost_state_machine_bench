@@ -11,5 +11,6 @@ public class TmostStateMachineBenchApplication {
 		ConfigurableApplicationContext ctx = SpringApplication.run(TmostStateMachineBenchApplication.class, args);
 		ctx.getBean(RunTests.class).runTests();
 		ctx.close();
+		System.exit(0);
 	}
 }
