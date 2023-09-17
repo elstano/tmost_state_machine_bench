@@ -64,8 +64,10 @@ public class RoomMediaSessionDao {
                         then connected_at else coalesce(:connected_at, connected_at) end,
                     disconnected_at = case when :disconnected_at > disconnected_at
                         then disconnected_at else coalesce(:disconnected_at, disconnected_at) end,
-                    state = case when cast(state as text) in (:updated_states)
-                        then :state else cast(state as text) end,
+                    state = cast( case when cast(state as text) in (:updated_states)
+                        then :state else cast(state as text) end
+                        as room_media_session_state
+                        ),
                     room_session_id = :room_session_id
             where peer_id = :peer_id
             """;

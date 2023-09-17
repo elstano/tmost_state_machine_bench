@@ -6,4 +6,12 @@ services:
     environment:
       POSTGRES_PASSWORD: "password"
       POSTGRES_HOST_AUTH_METHOD: "trust"
+    deploy:
+      resources:
+        limits:
+          cpus: 1
+#          memory: 2G
+        reservations:
+          cpus: 1
+#          memory: 2G
       
