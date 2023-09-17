@@ -46,7 +46,7 @@ public class SampleService {
             // assume that bridge session was changed for some reason.
             // allow connections only to the new sesson
             boolean brandNew = roomMediaSessionDao.isBrandNewRoomSession(roomId, roomSessionId);
-            log.info("Room session {} is different from the database version {}. brand new: {}",
+            log.trace("Room session {} is different from the database version {}. brand new: {}",
                     roomSessionId,
                     latestRoomSessionId,
                     brandNew
@@ -64,7 +64,7 @@ public class SampleService {
             accepted = persistFirstOfferEvent(roomId, peerId, roomSessionId);
         }
 
-        log.info("Acknowledged offer from room_id={}, peer_id={}, bridge_session_id={}. " +
+        log.trace("Acknowledged offer from room_id={}, peer_id={}, bridge_session_id={}. " +
                  "Accepted: {}",
                 roomId, peerId, roomSessionId, accepted
         );
@@ -75,7 +75,7 @@ public class SampleService {
     protected void disconnectOtherSessions(String roomId, String roomSessionIdToKeep) {
         Collection<String> stalledRoomMediaSessions = roomMediaSessionDao.findOtherActiveRoomSessions(roomId,
                 roomSessionIdToKeep);
-        log.info("Disconnecting stalled room sessions {}", stalledRoomMediaSessions);
+        log.trace("Disconnecting stalled room sessions {}", stalledRoomMediaSessions);
         Collection<RoomMediaSessionDto> disconnectedMediaSessionIds =
                 roomMediaSessionDao.disconnectAllInRoomAndRecreate(
                         stalledRoomMediaSessions,

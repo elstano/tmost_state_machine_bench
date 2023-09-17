@@ -68,7 +68,7 @@ public class RunTests {
         try {
             String roomId = UUID.randomUUID().toString();
             dao.createRoom(roomId);
-            log.info("Room created: {}", roomId);
+            log.info("Running cycle with room: {}", roomId);
             Conf conf = new Conf(roomId);
 
             String roomSession1 = UUID.randomUUID().toString();
