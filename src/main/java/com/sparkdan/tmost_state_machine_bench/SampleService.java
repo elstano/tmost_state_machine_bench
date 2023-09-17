@@ -1,8 +1,14 @@
 package com.sparkdan.tmost_state_machine_bench;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.joda.time.Instant;
@@ -20,7 +26,26 @@ import static com.sparkdan.tmost_state_machine_bench.RoomMediaSessionState.FIRST
 public class SampleService {
 
     @Autowired
+    MeterRegistry meterRegistry;
+
+    @Autowired
     RoomMediaSessionDao roomMediaSessionDao;
+
+    private Counter callsConnectedCounter;
+    private Counter upsertRequestsCounter;
+    private Timer upsertRequestsTimer;
+
+    @PostConstruct
+    protected void registerMeters() {
+        callsConnectedCounter = meterRegistry.counter("sampleservice.callsConnected");
+        upsertRequestsCounter = meterRegistry.counter("sampleservice.upsertRequestsCounter");
+
+        upsertRequestsTimer = Timer.builder("sampleservice.upsertRequestTimer")
+                .publishPercentiles(0.5, 0.9, 0.99)
+                .publishPercentileHistogram()
+                .distributionStatisticExpiry(Duration.ofSeconds(30))
+                .register(meterRegistry);
+    }
 
     private boolean isStaleRoomSession(String roomId, String roomSessionId) {
         String currentRoomSessionId = roomMediaSessionDao.getLatestRoomSessionId(roomId);
@@ -58,6 +83,8 @@ public class SampleService {
 
 
     public boolean offerReceived(String roomId, String peerId, String roomSessionId) {
+        long start = System.nanoTime();
+
         boolean accepted = isRoomSessionLive(roomId, peerId, roomSessionId);
         if (accepted) {
             disconnectOtherSessions(roomId, roomSessionId);
@@ -65,9 +92,12 @@ public class SampleService {
         }
 
         log.trace("Acknowledged offer from room_id={}, peer_id={}, bridge_session_id={}. " +
-                 "Accepted: {}",
+                  "Accepted: {}",
                 roomId, peerId, roomSessionId, accepted
         );
+
+        upsertRequestsTimer.record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
+        upsertRequestsCounter.increment();
 
         return accepted;
     }
@@ -98,8 +128,9 @@ public class SampleService {
     }
 
     public boolean connected(String roomId, String peerId, String roomSessionId) {
+        long start = System.nanoTime();
         Instant now = Instant.now();
-        return upsertTransactionally(
+        boolean result = upsertTransactionally(
                 UpsertRMSRequest.builder()
                         .roomId(roomId)
                         .roomSessionId(roomSessionId)
@@ -111,11 +142,19 @@ public class SampleService {
                         .newConnectedAt(now)
                         .build()
         );
+
+        upsertRequestsTimer.record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
+        upsertRequestsCounter.increment();
+        callsConnectedCounter.increment();
+
+        return result;
     }
 
     public boolean disconnected(String roomId, String peerId, String roomSessionId) {
+        long start = System.nanoTime();
+
         Instant now = Instant.now();
-        return upsertTransactionally(
+        boolean result = upsertTransactionally(
                 UpsertRMSRequest.builder()
                         .roomId(roomId)
                         .roomSessionId(roomSessionId)
@@ -128,9 +167,12 @@ public class SampleService {
                         .newDisconnectedAt(now)
                         .build()
         );
+
+        upsertRequestsTimer.record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
+        upsertRequestsCounter.increment();
+
+        return result;
     }
-
-
 
     private boolean upsertTransactionally(UpsertRMSRequest upsertRMSRequest) {
         String roomId = upsertRMSRequest.getRoomId();
