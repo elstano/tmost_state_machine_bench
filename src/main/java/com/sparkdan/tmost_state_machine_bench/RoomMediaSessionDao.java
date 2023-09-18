@@ -324,6 +324,15 @@ public class RoomMediaSessionDao {
         return result;
     }
 
+    public void selectRoomIdForUpdate(String roomId) {
+        jdbcTemplate.queryForObject("""
+                select room_id from rooms where room_id = ? for update
+                """,
+                String.class,
+                roomId
+        );
+    }
+
     public int updateByRoomSessionId(UpsertRMSRequest upsertRMSRequest) {
         MapSqlParameterSource params = fromUpsertRMSRequest(upsertRMSRequest);
         return namedJdbcTemplate.update(

@@ -46,6 +46,11 @@ public class RunTests {
 
     public void runTests() throws InterruptedException {
         log.info("Running tests");
+        sampleService.setUseLocks(false);
+        launchCycles().join();
+        Thread.sleep(60000L);
+        log.info("Starting the same test but with locks");
+        sampleService.setUseLocks(true);
         launchCycles().join();
         log.info("tests finished");
     }

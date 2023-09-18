@@ -9,11 +9,13 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PostConstruct;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.joda.time.Instant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.sparkdan.tmost_state_machine_bench.RoomMediaSessionState.ARCHIVED;
 import static com.sparkdan.tmost_state_machine_bench.RoomMediaSessionState.CONNECTED;
@@ -31,9 +33,15 @@ public class SampleService {
     @Autowired
     RoomMediaSessionDao roomMediaSessionDao;
 
+    @Autowired
+    TransactionTemplate transactionTemplate;
+
     private Counter callsConnectedCounter;
     private Counter upsertRequestsCounter;
     private Timer upsertRequestsTimer;
+
+    @Setter
+    private boolean useLocks = false;
 
     @PostConstruct
     protected void registerMeters() {
@@ -174,14 +182,27 @@ public class SampleService {
         return result;
     }
 
-    private boolean upsertTransactionally(UpsertRMSRequest upsertRMSRequest) {
-        String roomId = upsertRMSRequest.getRoomId();
-        String roomSessionId = upsertRMSRequest.getRoomSessionId();
+    private int upsertWithLock(UpsertRMSRequest upsertRMSRequest) {
+        Integer result = transactionTemplate.execute(status -> {
+            roomMediaSessionDao.selectRoomIdForUpdate(upsertRMSRequest.getRoomId());
 
-        if (isStaleRoomSession(roomId, roomSessionId)) {
-            return false;
+            int updated;
+            updated = roomMediaSessionDao.updateByRoomSessionId(upsertRMSRequest);
+            if (updated == 0) {
+                updated = roomMediaSessionDao.updateCreatedRoomSession(upsertRMSRequest);
+                if (updated == 0) {
+                    updated = roomMediaSessionDao.insertOrDoNothing(upsertRMSRequest);
+                }
+            }
+            return updated;
+        });
+        if(result == null) {
+            throw new RuntimeException("impossible");
         }
+        return result;
+    }
 
+    private int upsertNoLock(UpsertRMSRequest upsertRMSRequest) {
         int updated;
         updated = roomMediaSessionDao.updateByRoomSessionId(upsertRMSRequest);
         if (updated == 0) {
@@ -192,6 +213,23 @@ public class SampleService {
                     updated = roomMediaSessionDao.updateByRoomSessionId(upsertRMSRequest);
                 }
             }
+        }
+        return updated;
+    }
+
+    private boolean upsertTransactionally(UpsertRMSRequest upsertRMSRequest) {
+        String roomId = upsertRMSRequest.getRoomId();
+        String roomSessionId = upsertRMSRequest.getRoomSessionId();
+
+        if (isStaleRoomSession(roomId, roomSessionId)) {
+            return false;
+        }
+
+        int updated;
+        if(useLocks) {
+            updated = upsertWithLock(upsertRMSRequest);
+        } else {
+            updated = upsertNoLock(upsertRMSRequest);
         }
 
         if (updated == 0) {

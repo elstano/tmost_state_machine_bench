@@ -1,11 +1,16 @@
 services:
   postgres:
-    image: "postgres:15.4"
+    container_name: postgres
+    build:
+      context: .
+      dockerfile: ./Dockerfile.pg
     ports:
       - "15432:5432"
     environment:
       POSTGRES_PASSWORD: "password"
       POSTGRES_HOST_AUTH_METHOD: "trust"
+    cap_add:
+     - NET_ADMIN
     deploy:
       resources:
         limits:
