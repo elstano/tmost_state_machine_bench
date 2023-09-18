@@ -1,5 +1,8 @@
 package com.sparkdan.tmost_state_machine_bench;
 
+import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -12,9 +15,13 @@ import java.util.concurrent.Future;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.exec.CommandLine;
+import org.apache.commons.exec.DefaultExecutor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 @Service
 @Slf4j
@@ -29,11 +36,16 @@ public class RunTests {
     @Value("${test.concurrency}")
     public long testConcurrency;
 
+    @Value("${test.pause.between.samples.millis}")
+    public long pauseBetweenSamplesMillis;
+
     @Autowired
     protected SampleService sampleService;
 
     @Autowired
     protected RoomMediaSessionDao dao;
+
+    private RestTemplate restTemplate = new RestTemplate();
 
     private ExecutorService executor = Executors.newCachedThreadPool();
 
@@ -44,21 +56,61 @@ public class RunTests {
         private final List<Future<String>> hangingOffers = Collections.synchronizedList(new ArrayList<>());
     }
 
-    public void runTests() throws InterruptedException {
-        log.info("Running tests");
-        sampleService.setUseLocks(false);
+    public void runTests() throws InterruptedException, IOException {
+        runSuit(false, 0);
+        Thread.sleep(pauseBetweenSamplesMillis);
+        runSuit(true, 0);
+        Thread.sleep(pauseBetweenSamplesMillis);
+
+        runSuit(false, 1);
+        Thread.sleep(pauseBetweenSamplesMillis);
+        runSuit(true, 1);
+        Thread.sleep(pauseBetweenSamplesMillis);
+
+        runSuit(true, 30);
+        Thread.sleep(pauseBetweenSamplesMillis);
+        runSuit(true, 30);
+    }
+
+    public void runSuit(boolean useLocks, long pgPingMs) throws InterruptedException, IOException {
+        log.info("Running tests. Locks: {}, pgPing: {} ms", useLocks, pgPingMs);
+        setPgPing(pgPingMs);
+        sampleService.setUseLocks(useLocks);
+
+        long startMs = System.currentTimeMillis();
         launchCycles().join();
-        Thread.sleep(60000L);
-        log.info("Starting the same test but with locks");
-        sampleService.setUseLocks(true);
-        launchCycles().join();
-        log.info("tests finished");
+        long endMs = System.currentTimeMillis();
+
+
+        URI resultsUri = UriComponentsBuilder.fromHttpUrl("http://localhost:9090/api/v1/query_range")
+                .queryParam("query", "rate(sampleservice_callsConnected_total[5s])", StandardCharsets.UTF_8)
+                .queryParam("start", dottedSeconds(startMs - pauseBetweenSamplesMillis / 2))
+                .queryParam("end", dottedSeconds(endMs) + pauseBetweenSamplesMillis / 2)
+                .queryParam("step", "1")
+                .build().toUri();
+
+        log.info("Finished running tests. Locks: {}, pgPing: {} ms. uri is {}", useLocks, pgPingMs, resultsUri);
+        String result = restTemplate.getForObject(resultsUri, String.class);
+        log.info("result is {}", result);
+    }
+
+    private String dottedSeconds(long millis) {
+        long seconds = millis / 1000;
+        long remainder = millis % 1000;
+        return seconds + "." + remainder;
+    }
+
+    private void setPgPing(long ms) throws IOException {
+        CommandLine oCmdLine = CommandLine.parse(String.format("./setPgDelay.sh %dms", ms));
+        DefaultExecutor oDefaultExecutor = new DefaultExecutor();
+        oDefaultExecutor.setExitValue(0);
+        oDefaultExecutor.execute(oCmdLine);
     }
 
     public CompletableFuture<Void> launchCycles() {
         long start = System.currentTimeMillis();
         List<CompletableFuture<Void>> cycles = new ArrayList<>();
-        for(int i=0; i < testConcurrency; i++) {
+        for (int i = 0; i < testConcurrency; i++) {
             cycles.add(CompletableFuture.runAsync(() -> {
                 while (System.currentTimeMillis() - start < testDurationMillis) {
                     mainOneCycle();
@@ -73,7 +125,7 @@ public class RunTests {
         try {
             String roomId = UUID.randomUUID().toString();
             dao.createRoom(roomId);
-            log.info("Running cycle with room: {}", roomId);
+            log.trace("Running cycle with room: {}", roomId);
             Conf conf = new Conf(roomId);
 
             String roomSession1 = UUID.randomUUID().toString();
@@ -98,7 +150,7 @@ public class RunTests {
     public CompletableFuture<Void> everyoneIdlyDisconnectsAsync(Conf conf, String roomSessionId) {
         List<CompletableFuture<Void>> leaves = new ArrayList<>();
         List<String> localPeerIDs = new ArrayList<>(conf.peerIDs);
-        for(String peerId: localPeerIDs) {
+        for (String peerId : localPeerIDs) {
             leaves.add(CompletableFuture.runAsync(() -> {
                         sampleService.offerReceived(conf.roomId, peerId, roomSessionId);
                         sampleService.disconnected(conf.roomId, peerId, roomSessionId);
