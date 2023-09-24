@@ -1,5 +1,6 @@
 package com.sparkdan.tmost_state_machine_bench;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -13,10 +14,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecutor;
+import org.apache.commons.io.FileUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -48,6 +54,8 @@ public class RunTests {
     private RestTemplate restTemplate = new RestTemplate();
 
     private ExecutorService executor = Executors.newCachedThreadPool();
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @RequiredArgsConstructor
     static class Conf {
@@ -82,16 +90,35 @@ public class RunTests {
         long endMs = System.currentTimeMillis();
 
 
+        outputResult(useLocks, pgPingMs, startMs, endMs);
+        log.info("Finished running tests. Locks: {}, pgPing: {} ms", useLocks, pgPingMs);
+    }
+
+    private void outputResult(boolean useLocks, long pgPingMS, long startMs, long endMs ) throws IOException {
         URI resultsUri = UriComponentsBuilder.fromHttpUrl("http://localhost:9090/api/v1/query_range")
                 .queryParam("query", "rate(sampleservice_callsConnected_total[5s])", StandardCharsets.UTF_8)
                 .queryParam("start", dottedSeconds(startMs - pauseBetweenSamplesMillis / 2))
                 .queryParam("end", dottedSeconds(endMs) + pauseBetweenSamplesMillis / 2)
                 .queryParam("step", "1")
                 .build().toUri();
+        String resultStr = restTemplate.getForObject(resultsUri, String.class);
+        JsonNode result = objectMapper.readTree(resultStr);
+        ArrayNode valuesArr = (ArrayNode) result.at("/data/result/0/values");
 
-        log.info("Finished running tests. Locks: {}, pgPing: {} ms. uri is {}", useLocks, pgPingMs, resultsUri);
-        String result = restTemplate.getForObject(resultsUri, String.class);
-        log.info("result is {}", result);
+        StringBuilder csvBuilder = new StringBuilder("time,rps\n");
+        valuesArr.elements().forEachRemaining(node -> {
+            double timestampSecs = node.get(0).asDouble();
+            long timestampMs = (long) ( timestampSecs * 1000.0);
+            String value = node.get(1).asText();
+            csvBuilder.append(timestampMs).append(",").append(value).append("\n");
+        });
+
+        File targetFile = new File(String.format("target/locks_%b+ping_%d.csv", useLocks, pgPingMS));
+        FileUtils.writeStringToFile(
+                targetFile,
+                csvBuilder.toString(),
+                StandardCharsets.UTF_8
+        );
     }
 
     private String dottedSeconds(long millis) {
@@ -101,7 +128,29 @@ public class RunTests {
     }
 
     private void setPgPing(long ms) throws IOException {
-        CommandLine oCmdLine = CommandLine.parse(String.format("./setPgDelay.sh %dms", ms));
+        log.info("dropping previous pg delay setting");
+        //drop delay
+        try {
+            CommandLine oCmdLine = CommandLine.parse(
+                    "docker exec postgres tc qdisc del dev eth0 root netem delay 1ms"
+            );
+            DefaultExecutor oDefaultExecutor = new DefaultExecutor();
+            oDefaultExecutor.setExitValue(0);
+            oDefaultExecutor.execute(oCmdLine);
+        } catch (Exception e) {
+            log.error("failed to drop PG delay. proceeding with the execution", e);
+        }
+
+        if(ms == 0) {
+            log.info("Not setting new PG delay");
+            return;
+        }
+
+        log.info("setting pg delay to {}", ms);
+        CommandLine oCmdLine = CommandLine.parse(String.format(
+                "docker exec postgres tc qdisc add dev eth0 root netem delay %dms",
+                ms
+        ));
         DefaultExecutor oDefaultExecutor = new DefaultExecutor();
         oDefaultExecutor.setExitValue(0);
         oDefaultExecutor.execute(oCmdLine);
