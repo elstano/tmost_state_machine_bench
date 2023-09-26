@@ -75,7 +75,7 @@ public class RunTests {
         runSuit(true, 1);
         Thread.sleep(pauseBetweenSamplesMillis);
 
-        runSuit(true, 30);
+        runSuit(false, 30);
         Thread.sleep(pauseBetweenSamplesMillis);
         runSuit(true, 30);
     }
