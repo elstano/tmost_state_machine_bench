@@ -25,3 +25,4 @@ replay_pid*
 /.idea/
 
 /ipnb/*.csv
+/ipnb/.ipynb_checkpoints

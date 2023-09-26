@@ -97,8 +97,8 @@ public class RunTests {
     private void outputResult(boolean useLocks, long pgPingMS, long startMs, long endMs ) throws IOException {
         URI resultsUri = UriComponentsBuilder.fromHttpUrl("http://localhost:9090/api/v1/query_range")
                 .queryParam("query", "rate(sampleservice_callsConnected_total[5s])", StandardCharsets.UTF_8)
-                .queryParam("start", dottedSeconds(startMs - pauseBetweenSamplesMillis / 2))
-                .queryParam("end", dottedSeconds(endMs) + pauseBetweenSamplesMillis / 2)
+                .queryParam("start", dottedSeconds(startMs + 5000))
+                .queryParam("end", dottedSeconds(endMs))
                 .queryParam("step", "1")
                 .build().toUri();
         String resultStr = restTemplate.getForObject(resultsUri, String.class);
