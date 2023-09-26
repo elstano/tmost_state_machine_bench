@@ -113,7 +113,7 @@ public class RunTests {
             csvBuilder.append(timestampMs).append(",").append(value).append("\n");
         });
 
-        File targetFile = new File(String.format("target/locks_%b+ping_%d.csv", useLocks, pgPingMS));
+        File targetFile = new File(String.format("ipnb/locks_%b+ping_%d.csv", useLocks, pgPingMS));
         FileUtils.writeStringToFile(
                 targetFile,
                 csvBuilder.toString(),
