@@ -75,9 +75,9 @@ public class RunTests {
         runSuit(true, 1);
         sleepBetweenTests();
 
-        runSuit(true, 1, 8);
+        runSuit(true, 1, 10);
         sleepBetweenTests();
-        runSuit(false, 1, 8);
+        runSuit(false, 1, 10);
         sleepBetweenTests();
 
         runSuit(false, 30);
