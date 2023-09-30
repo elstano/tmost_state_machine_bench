@@ -94,6 +94,7 @@ services:
     volumes:
       - ./ipnb:/home/jovyan/ipnb
       - ./jupyter_notebook_config.py:/home/jovyan/.jupyter/jupyter_notebook_config.py
+      - /usr/share/fonts/truetype:/usr/share/fonts/truetype
     ports:
       - 8888:8888
 volumes:
