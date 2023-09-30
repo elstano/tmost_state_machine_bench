@@ -22,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecutor;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -65,23 +66,28 @@ public class RunTests {
 
     public void runTests() throws InterruptedException, IOException {
         runSuit(false, 0);
-        Thread.sleep(pauseBetweenSamplesMillis);
+        sleepBetweenTests();
         runSuit(true, 0);
-        Thread.sleep(pauseBetweenSamplesMillis);
+        sleepBetweenTests();
 
         runSuit(false, 1);
-        Thread.sleep(pauseBetweenSamplesMillis);
+        sleepBetweenTests();
         runSuit(true, 1);
-        Thread.sleep(pauseBetweenSamplesMillis);
+        sleepBetweenTests();
 
-        runSuit(false, 1, 125);
-        Thread.sleep(pauseBetweenSamplesMillis);
-        runSuit(true, 1, 125);
-        Thread.sleep(pauseBetweenSamplesMillis);
+        runSuit(true, 1, 8);
+        sleepBetweenTests();
+        runSuit(false, 1, 8);
+        sleepBetweenTests();
 
         runSuit(false, 30);
-        Thread.sleep(pauseBetweenSamplesMillis);
+        sleepBetweenTests();
         runSuit(true, 30);
+    }
+
+    private void sleepBetweenTests() throws InterruptedException {
+        log.info("Sleeping for {} ms between tests", pauseBetweenSamplesMillis);
+        Thread.sleep(pauseBetweenSamplesMillis);
     }
 
     public void runSuit(boolean useLocks, long pgPingMs) throws InterruptedException, IOException {
@@ -92,7 +98,7 @@ public class RunTests {
         log.info("Running tests. Locks: {}, pgPing: {} ms, Throttle RPS delay {}", useLocks, pgPingMs, throttleRPSDelay);
         setPgPing(pgPingMs);
         sampleService.setUseLocks(useLocks);
-        sampleService.setThrottleRPSDelay(throttleRPSDelay);
+        sampleService.setRpsDelay(throttleRPSDelay);
 
         long startMs = System.currentTimeMillis();
         launchCycles().join();
@@ -102,9 +108,9 @@ public class RunTests {
         log.info("Finished running tests. Locks: {}, pgPing: {} ms, Throttle RPS delay {}", useLocks, pgPingMs, throttleRPSDelay);
     }
 
-    private void outputResult(boolean useLocks, long pgPingMS, long startMs, long endMs, long throttleRPSDelay ) throws IOException {
+    private void queryPrometheusToCSV(String query, long startMs, long endMs, String csvPath, String csvHeaders) throws IOException {
         URI resultsUri = UriComponentsBuilder.fromHttpUrl("http://localhost:9090/api/v1/query_range")
-                .queryParam("query", "rate(sampleservice_callsConnected_total[5s])", StandardCharsets.UTF_8)
+                .queryParam("query", query, StandardCharsets.UTF_8)
                 .queryParam("start", dottedSeconds(startMs + 5000))
                 .queryParam("end", dottedSeconds(endMs))
                 .queryParam("step", "1")
@@ -113,7 +119,7 @@ public class RunTests {
         JsonNode result = objectMapper.readTree(resultStr);
         ArrayNode valuesArr = (ArrayNode) result.at("/data/result/0/values");
 
-        StringBuilder csvBuilder = new StringBuilder("time,rps\n");
+        StringBuilder csvBuilder = new StringBuilder(StringUtils.trim(csvHeaders) + "\n");
         valuesArr.elements().forEachRemaining(node -> {
             double timestampSecs = node.get(0).asDouble();
             long timestampMs = (long) ( timestampSecs * 1000.0);
@@ -121,16 +127,38 @@ public class RunTests {
             csvBuilder.append(timestampMs).append(",").append(value).append("\n");
         });
 
-        File targetFile = new File(String.format(
-                "ipnb/locks_%b+ping_%d_rps_%d.csv",
-                useLocks,
-                pgPingMS,
-                throttleRPSDelay
-        ));
+        File targetFile = new File(csvPath);
         FileUtils.writeStringToFile(
                 targetFile,
                 csvBuilder.toString(),
                 StandardCharsets.UTF_8
+        );
+    }
+
+    private void outputResult(boolean useLocks, long pgPingMS, long startMs, long endMs, long throttleRPSDelay ) throws IOException {
+        queryPrometheusToCSV(
+                "rate(sampleservice_callsConnected_total[5s])",
+                startMs,
+                endMs,
+                String.format(
+                        "ipnb/cps_%b+ping_%d_rps_%d.csv",
+                        useLocks,
+                        pgPingMS,
+                        throttleRPSDelay
+                ),
+                "time,rps"
+        );
+        queryPrometheusToCSV(
+                "hikaricp_connections_active",
+                startMs,
+                endMs,
+                String.format(
+                        "ipnb/connections_%b+ping_%d_rps_%d.csv",
+                        useLocks,
+                        pgPingMS,
+                        throttleRPSDelay
+                ),
+                "time,rps"
         );
     }
 

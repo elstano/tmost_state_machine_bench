@@ -4,7 +4,12 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
+import io.github.bucket4j.Bandwidth;
+import io.github.bucket4j.BlockingBucket;
+import io.github.bucket4j.Bucket;
+import io.github.bucket4j.Refill;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -44,23 +49,30 @@ public class SampleService {
     @Setter
     private boolean useLocks = false;
 
-    private volatile long prevRequestMs = 0;
-    @Setter
-    private volatile long throttleRPSDelay = 0;
+    private volatile BlockingBucket bucket;
 
-    private void throttleRPS() throws InterruptedException {
-        long localDelay = throttleRPSDelay;
-        if(localDelay <= 0) {
+    @PostConstruct
+    private void setRpsDelay() {
+        setRpsDelay(0);
+    }
+
+    public void setRpsDelay(long delay) {
+        if(delay == 0) {
+            bucket = null;
             return;
         }
 
-        long now = System.currentTimeMillis();
-        long alreadyDelayed = now - prevRequestMs;
-        if (alreadyDelayed < localDelay) {
-            long toSleep = localDelay - alreadyDelayed;
-            Thread.sleep(toSleep);
+        Refill refill = Refill.intervally(1, Duration.ofMillis(delay));
+        Bandwidth limit = Bandwidth.classic(1, refill);
+        bucket = Bucket.builder()
+                .addLimit(limit)
+                .build().asBlocking();
+    }
+
+    private void throttleRPS() throws InterruptedException {
+        if(bucket != null) {
+            bucket.consume(1);
         }
-        prevRequestMs = now;
     }
 
     @PostConstruct
