@@ -14,7 +14,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -75,26 +74,35 @@ public class RunTests {
         runSuit(true, 1);
         Thread.sleep(pauseBetweenSamplesMillis);
 
+        runSuit(false, 1, 125);
+        Thread.sleep(pauseBetweenSamplesMillis);
+        runSuit(true, 1, 125);
+        Thread.sleep(pauseBetweenSamplesMillis);
+
         runSuit(false, 30);
         Thread.sleep(pauseBetweenSamplesMillis);
         runSuit(true, 30);
     }
 
     public void runSuit(boolean useLocks, long pgPingMs) throws InterruptedException, IOException {
-        log.info("Running tests. Locks: {}, pgPing: {} ms", useLocks, pgPingMs);
+        runSuit(useLocks, pgPingMs, 0);
+    }
+
+    public void runSuit(boolean useLocks, long pgPingMs, long throttleRPSDelay) throws InterruptedException, IOException {
+        log.info("Running tests. Locks: {}, pgPing: {} ms, Throttle RPS delay {}", useLocks, pgPingMs, throttleRPSDelay);
         setPgPing(pgPingMs);
         sampleService.setUseLocks(useLocks);
+        sampleService.setThrottleRPSDelay(throttleRPSDelay);
 
         long startMs = System.currentTimeMillis();
         launchCycles().join();
         long endMs = System.currentTimeMillis();
 
-
-        outputResult(useLocks, pgPingMs, startMs, endMs);
-        log.info("Finished running tests. Locks: {}, pgPing: {} ms", useLocks, pgPingMs);
+        outputResult(useLocks, pgPingMs, startMs, endMs, throttleRPSDelay);
+        log.info("Finished running tests. Locks: {}, pgPing: {} ms, Throttle RPS delay {}", useLocks, pgPingMs, throttleRPSDelay);
     }
 
-    private void outputResult(boolean useLocks, long pgPingMS, long startMs, long endMs ) throws IOException {
+    private void outputResult(boolean useLocks, long pgPingMS, long startMs, long endMs, long throttleRPSDelay ) throws IOException {
         URI resultsUri = UriComponentsBuilder.fromHttpUrl("http://localhost:9090/api/v1/query_range")
                 .queryParam("query", "rate(sampleservice_callsConnected_total[5s])", StandardCharsets.UTF_8)
                 .queryParam("start", dottedSeconds(startMs + 5000))
@@ -113,7 +121,12 @@ public class RunTests {
             csvBuilder.append(timestampMs).append(",").append(value).append("\n");
         });
 
-        File targetFile = new File(String.format("ipnb/locks_%b+ping_%d.csv", useLocks, pgPingMS));
+        File targetFile = new File(String.format(
+                "ipnb/locks_%b+ping_%d_rps_%d.csv",
+                useLocks,
+                pgPingMS,
+                throttleRPSDelay
+        ));
         FileUtils.writeStringToFile(
                 targetFile,
                 csvBuilder.toString(),

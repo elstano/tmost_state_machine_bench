@@ -10,6 +10,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PostConstruct;
 import lombok.Setter;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.joda.time.Instant;
@@ -43,6 +44,25 @@ public class SampleService {
     @Setter
     private boolean useLocks = false;
 
+    private volatile long prevRequestMs = 0;
+    @Setter
+    private volatile long throttleRPSDelay = 0;
+
+    private void throttleRPS() throws InterruptedException {
+        long localDelay = throttleRPSDelay;
+        if(localDelay <= 0) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long alreadyDelayed = now - prevRequestMs;
+        if (alreadyDelayed < localDelay) {
+            long toSleep = localDelay - alreadyDelayed;
+            Thread.sleep(toSleep);
+        }
+        prevRequestMs = now;
+    }
+
     @PostConstruct
     protected void registerMeters() {
         callsConnectedCounter = meterRegistry.counter("sampleservice.callsConnected");
@@ -67,7 +87,9 @@ public class SampleService {
         return false;
     }
 
+    @SneakyThrows
     public void createSession(String roomId, String peerId) {
+        throttleRPS();
         roomMediaSessionDao.created(roomId, peerId);
     }
 
@@ -89,8 +111,10 @@ public class SampleService {
         return true;
     }
 
-
+    @SneakyThrows
     public boolean offerReceived(String roomId, String peerId, String roomSessionId) {
+        throttleRPS();
+
         long start = System.nanoTime();
 
         boolean accepted = isRoomSessionLive(roomId, peerId, roomSessionId);
@@ -135,7 +159,10 @@ public class SampleService {
                 .build());
     }
 
+    @SneakyThrows
     public boolean connected(String roomId, String peerId, String roomSessionId) {
+        throttleRPS();
+
         long start = System.nanoTime();
         Instant now = Instant.now();
         boolean result = upsertTransactionally(
@@ -158,7 +185,10 @@ public class SampleService {
         return result;
     }
 
+    @SneakyThrows
     public boolean disconnected(String roomId, String peerId, String roomSessionId) {
+        throttleRPS();
+
         long start = System.nanoTime();
 
         Instant now = Instant.now();
@@ -196,7 +226,7 @@ public class SampleService {
             }
             return updated;
         });
-        if(result == null) {
+        if (result == null) {
             throw new RuntimeException("impossible");
         }
         return result;
@@ -226,7 +256,7 @@ public class SampleService {
         }
 
         int updated;
-        if(useLocks) {
+        if (useLocks) {
             updated = upsertWithLock(upsertRMSRequest);
         } else {
             updated = upsertNoLock(upsertRMSRequest);
