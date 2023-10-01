@@ -65,7 +65,13 @@ public class RunTests {
     }
 
     public void runTests() throws InterruptedException, IOException {
+        String runVariations = System.getProperty("variations");
         runSuit(false, 0);
+
+        if(StringUtils.isBlank(runVariations)) {
+            return;
+        }
+
         sleepBetweenTests();
         runSuit(true, 0);
         sleepBetweenTests();

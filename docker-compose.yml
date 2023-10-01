@@ -1,6 +1,8 @@
 services:
   postgres:
     container_name: postgres
+    cap_add:
+      - NET_ADMIN
     build:
       context: .
       dockerfile: ./Dockerfile.pg
@@ -9,8 +11,6 @@ services:
     environment:
       POSTGRES_PASSWORD: "password"
       POSTGRES_HOST_AUTH_METHOD: "trust"
-    cap_add:
-     - NET_ADMIN
     deploy:
       resources:
         limits:
