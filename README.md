@@ -1,5 +1,4 @@
 # tmost_state_machine_bench
-fdsa
 
 #emulate network delay
 https://medium.com/@kazushi/simulate-high-latency-network-using-docker-containerand-tc-commands-a3e503ea4307
